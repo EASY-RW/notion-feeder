@@ -38,7 +38,6 @@ async function index() {
       title: item.title,
       link: item.link,
       content: htmlToNotionBlocks(item.content || item.contentSnippet),
-      publishedAt: extractPublishedAt(item),
     };
     await addFeedItemToNotion(notionItem);
   }
