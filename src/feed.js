@@ -21,13 +21,6 @@ function getRunFrequencyInSeconds() {
   return DEFAULT_RUN_FREQUENCY;
 }
 
-function normalizeTitle(title = '') {
-  const withoutTags = String(title).replace(/<[^>]*>/g, '');
-  const decodedOnce = decodeHTML(withoutTags);
-  const decodedTwice = decodeHTML(decodedOnce);
-  return decodedTwice.replace(/\s+/g, ' ').trim();
-}
-
 async function getNewFeedItemsFrom(feedUrl, runFrequencySeconds) {
   const parser = new Parser();
   let rss;
@@ -52,7 +45,7 @@ async function getNewFeedItemsFrom(feedUrl, runFrequencySeconds) {
     })
     .map((item) => ({
       ...item,
-      title: normalizeTitle(item.title),
+      title: decodeHTML(String(item.title || '')).trim(),
     }));
 }
 
@@ -70,23 +63,14 @@ export default async function getNewFeedItems() {
 
   const seenLinks = new Set();
   allNewFeedItems = allNewFeedItems.filter((item) => {
-    const link = item.link ? item.link.trim() : '';
-    const guid = item.guid ? String(item.guid).trim() : '';
-    const titleKey = item.title ? item.title.trim() : '';
-    const publishedKey = item.pubDate
-      ? new Date(item.pubDate).toISOString()
-      : '';
-    const dedupKey = link || guid || `${titleKey}__${publishedKey}`;
-
-    if (!dedupKey) {
+    const link = item.link || item.guid;
+    if (!link) {
       return true;
     }
-
-    if (seenLinks.has(dedupKey)) {
+    if (seenLinks.has(link)) {
       return false;
     }
-
-    seenLinks.add(dedupKey);
+    seenLinks.add(link);
     return true;
   });
 

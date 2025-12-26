@@ -19,7 +19,6 @@ async function index() {
       title: item.title,
       link: item.link,
       content: htmlToNotionBlocks(item.content || item.contentSnippet),
-      publishedAt: item.pubDate ? new Date(item.pubDate).toISOString() : null,
     };
     await addFeedItemToNotion(notionItem);
   }
