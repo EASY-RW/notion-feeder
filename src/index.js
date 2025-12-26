@@ -5,6 +5,25 @@ import {
 } from './notion';
 import htmlToNotionBlocks from './parser';
 
+function extractPublishedAt(item) {
+  const candidates = [
+    item.isoDate,
+    item.published,
+    item.pubDate,
+    item.updated,
+  ].filter(Boolean);
+
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    const date = new Date(candidate);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+
+  return null;
+}
+
 async function index() {
   const feedItems = await getNewFeedItems();
 
