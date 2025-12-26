@@ -95,7 +95,7 @@ export async function getFeedUrlsFromNotion() {
 }
 
 export async function addFeedItemToNotion(notionItem) {
-  const { title, link, content } = notionItem;
+  const { title, link, content, publishedAt } = notionItem;
 
   const notion = createNotionClient();
 
@@ -117,6 +117,13 @@ export async function addFeedItemToNotion(notionItem) {
         Link: {
           url: link,
         },
+        Published: publishedAt
+          ? {
+              date: {
+                start: publishedAt,
+              },
+            }
+          : undefined,
       },
       children: content,
     });
