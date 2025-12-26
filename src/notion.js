@@ -3,6 +3,12 @@ import { Client, LogLevel } from '@notionhq/client';
 
 dotenv.config();
 
+const REQUIRED_ENV_VARS = [
+  'NOTION_API_TOKEN',
+  'NOTION_READER_DATABASE_ID',
+  'NOTION_FEEDS_DATABASE_ID',
+];
+
 const {
   NOTION_API_TOKEN,
   NOTION_READER_DATABASE_ID,
@@ -12,17 +18,49 @@ const {
 
 const logLevel = CI ? LogLevel.INFO : LogLevel.DEBUG;
 
-export async function getFeedUrlsFromNotion() {
-  const notion = new Client({
+function validateEnv() {
+  const missing = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+  if (missing.length) {
+    const missingVars = missing.join(', ');
+    throw new Error(
+      `Missing required environment variables: ${missingVars}. Please set them before running the script.`
+    );
+  }
+}
+
+function createNotionClient() {
+  validateEnv();
+  return new Client({
     auth: NOTION_API_TOKEN,
     logLevel,
   });
+}
 
-  let response;
+async function queryDatabaseWithPagination(notion, databaseId, filter) {
+  const results = [];
+  let cursor;
+
+  do {
+    const response = await notion.databases.query({
+      database_id: databaseId,
+      filter,
+      start_cursor: cursor,
+    });
+    results.push(...response.results);
+    cursor = response.has_more ? response.next_cursor : undefined;
+  } while (cursor);
+
+  return results;
+}
+
+export async function getFeedUrlsFromNotion() {
+  const notion = createNotionClient();
+
   try {
-    response = await notion.databases.query({
-      database_id: NOTION_FEEDS_DATABASE_ID,
-      filter: {
+    const feedPages = await queryDatabaseWithPagination(
+      notion,
+      NOTION_FEEDS_DATABASE_ID,
+      {
         or: [
           {
             property: 'Enabled',
@@ -31,28 +69,35 @@ export async function getFeedUrlsFromNotion() {
             },
           },
         ],
-      },
-    });
+      }
+    );
+
+    const feeds = feedPages
+      .map((item) => {
+        const titleProperty = item.properties?.Title?.title || [];
+        const link = item.properties?.Link?.url;
+        if (!link || !titleProperty.length) {
+          console.warn(`Skipping feed with missing data (ID: ${item.id}).`);
+          return null;
+        }
+        return {
+          title: titleProperty[0].plain_text,
+          feedUrl: link,
+        };
+      })
+      .filter(Boolean);
+
+    return feeds;
   } catch (err) {
-    console.error(err);
+    console.error('Failed to fetch feeds from Notion.', err);
     return [];
   }
-
-  const feeds = response.results.map((item) => ({
-    title: item.properties.Title.title[0].plain_text,
-    feedUrl: item.properties.Link.url,
-  }));
-
-  return feeds;
 }
 
 export async function addFeedItemToNotion(notionItem) {
   const { title, link, content } = notionItem;
 
-  const notion = new Client({
-    auth: NOTION_API_TOKEN,
-    logLevel,
-  });
+  const notion = createNotionClient();
 
   try {
     await notion.pages.create({
@@ -76,27 +121,22 @@ export async function addFeedItemToNotion(notionItem) {
       children: content,
     });
   } catch (err) {
-    console.error(err);
+    console.error(`Failed to add feed item "${title}" to Notion.`, err);
   }
 }
 
 export async function deleteOldUnreadFeedItemsFromNotion() {
-  const notion = new Client({
-    auth: NOTION_API_TOKEN,
-    logLevel,
-  });
+  const notion = createNotionClient();
 
   // Create a datetime which is 30 days earlier than the current time
   const fetchBeforeDate = new Date();
   fetchBeforeDate.setDate(fetchBeforeDate.getDate() - 30);
 
-  // Query the feed reader database
-  // and fetch only those items that are unread or created before last 30 days
-  let response;
   try {
-    response = await notion.databases.query({
-      database_id: NOTION_READER_DATABASE_ID,
-      filter: {
+    const oldUnreadPages = await queryDatabaseWithPagination(
+      notion,
+      NOTION_READER_DATABASE_ID,
+      {
         and: [
           {
             property: 'Created At',
@@ -111,25 +151,21 @@ export async function deleteOldUnreadFeedItemsFromNotion() {
             },
           },
         ],
-      },
-    });
-  } catch (err) {
-    console.error(err);
-    return;
-  }
+      }
+    );
 
-  // Get the page IDs from the response
-  const feedItemsIds = response.results.map((item) => item.id);
-
-  for (let i = 0; i < feedItemsIds.length; i++) {
-    const id = feedItemsIds[i];
-    try {
-      await notion.pages.update({
-        page_id: id,
-        archived: true,
-      });
-    } catch (err) {
-      console.error(err);
+    for (let i = 0; i < oldUnreadPages.length; i++) {
+      const page = oldUnreadPages[i];
+      try {
+        await notion.pages.update({
+          page_id: page.id,
+          archived: true,
+        });
+      } catch (err) {
+        console.error(`Failed to archive page ${page.id}.`, err);
+      }
     }
+  } catch (err) {
+    console.error('Failed to archive old unread feed items.', err);
   }
 }
