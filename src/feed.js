@@ -1,5 +1,6 @@
 import Parser from 'rss-parser';
 import dotenv from 'dotenv';
+import { decodeHTML } from 'entities';
 import timeDifference from './helpers';
 import { getFeedUrlsFromNotion } from './notion';
 
@@ -32,15 +33,20 @@ async function getNewFeedItemsFrom(feedUrl, runFrequencySeconds) {
   const currentTime = new Date().getTime() / 1000;
 
   // Filter out items that fall in the run frequency range
-  return rss.items.filter((item) => {
-    if (!item.pubDate || !item.title || !item.link) {
-      console.warn(`Skipping item with missing data from ${feedUrl}.`);
-      return false;
-    }
-    const blogPublishedTime = new Date(item.pubDate).getTime() / 1000;
-    const { diffInSeconds } = timeDifference(currentTime, blogPublishedTime);
-    return diffInSeconds >= 0 && diffInSeconds < runFrequencySeconds;
-  });
+  return rss.items
+    .filter((item) => {
+      if (!item.pubDate || !item.title || !item.link) {
+        console.warn(`Skipping item with missing data from ${feedUrl}.`);
+        return false;
+      }
+      const blogPublishedTime = new Date(item.pubDate).getTime() / 1000;
+      const { diffInSeconds } = timeDifference(currentTime, blogPublishedTime);
+      return diffInSeconds >= 0 && diffInSeconds < runFrequencySeconds;
+    })
+    .map((item) => ({
+      ...item,
+      title: decodeHTML(String(item.title || '')).trim(),
+    }));
 }
 
 export default async function getNewFeedItems() {
